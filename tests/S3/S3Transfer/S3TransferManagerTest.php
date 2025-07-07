@@ -18,6 +18,7 @@ use Aws\S3\S3Transfer\MultipartUploader;
 use Aws\S3\S3Transfer\Progress\TransferListener;
 use Aws\S3\S3Transfer\Progress\TransferProgressSnapshot;
 use Aws\S3\S3Transfer\S3TransferManager;
+use Aws\Test\TestsUtility;
 use Aws\Test\UsesServiceTrait;
 use Closure;
 use Exception;

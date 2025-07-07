@@ -90,18 +90,15 @@ abstract class AbstractMultipartUploader implements PromisorInterface
      */
     protected function validateConfig(array &$config): void
     {
-        if (!empty($partSize = $config['part_size'])
-            && ($partSize < self::PART_MIN_SIZE || $partSize > self::PART_MAX_SIZE)
-        ) {
-                throw new \InvalidArgumentException(
-                    "The config `part_size` value must be between "
-                    . self::PART_MIN_SIZE . " and " . self::PART_MAX_SIZE . "."
-                    . self::PART_MIN_SIZE . " and " . self::PART_MAX_SIZE
-                    . " but ${config['part_size']} given."
-                );
-            }
-
-        $config['part_size'] = self::PART_MIN_SIZE;
+        if (!isset($config['part_size'])) {
+            $config['part_size'] = self::PART_MIN_SIZE;
+        }
+        $partSize = $config['part_size'];
+        if (!is_int($partSize) || $partSize < self::PART_MIN_SIZE || $partSize > self::PART_MAX_SIZE) {
+            throw new \InvalidArgumentException(
+                "Invalid `part_size`: " . var_export($partSize, true)
+            );
+        }
     }
 
     /**
@@ -128,6 +125,7 @@ abstract class AbstractMultipartUploader implements PromisorInterface
     {
         return $this->currentSnapshot;
     }
+
     /**
      * @return PromiseInterface
      */
@@ -153,11 +151,10 @@ abstract class AbstractMultipartUploader implements PromisorInterface
      */
     protected function createMultipartUpload(): PromiseInterface
     {
-        $requestArgs = [...$this->createMultipartArgs];
-        $this->operationInitiated($requestArgs);
+        $this->operationInitiated($this->createMultipartArgs);
         $command = $this->s3Client->getCommand(
             'CreateMultipartUpload',
-            $requestArgs
+            $this->createMultipartArgs
         );
 
         return $this->s3Client->executeAsync($command)
@@ -229,7 +226,8 @@ abstract class AbstractMultipartUploader implements PromisorInterface
     (
         ResultInterface $result,
         CommandInterface $command
-    ): void {
+    ): void
+    {
         $checksumResult = match($command->getName()) {
             'UploadPart' => $result,
             'UploadPartCopy' => $result['CopyPartResult'],
@@ -306,7 +304,9 @@ abstract class AbstractMultipartUploader implements PromisorInterface
             $result->toArray(),
             $this->currentSnapshot->getReason(),
         );
+
         $this->currentSnapshot = $newSnapshot;
+
         $this->listenerNotifier?->transferComplete([
             TransferListener::REQUEST_ARGS_KEY => $this->createMultipartArgs,
             TransferListener::PROGRESS_SNAPSHOT_KEY => $this->currentSnapshot
@@ -362,12 +362,13 @@ abstract class AbstractMultipartUploader implements PromisorInterface
             $this->currentSnapshot->getResponse(),
             $this->currentSnapshot->getReason(),
         );
+
         $this->currentSnapshot = $newSnapshot;
+
         $this->listenerNotifier?->bytesTransferred([
             TransferListener::REQUEST_ARGS_KEY => $requestArgs,
             TransferListener::PROGRESS_SNAPSHOT_KEY => $this->currentSnapshot
         ]);
-
     }
 
     /**
@@ -398,15 +399,15 @@ abstract class AbstractMultipartUploader implements PromisorInterface
     protected function containsChecksum(array $requestArgs): bool
     {
         static $algorithms = [
-            'ChecksumCRC32',
-            'ChecksumCRC32C',
-            'ChecksumCRC64NVME',
-            'ChecksumSHA1',
-            'ChecksumSHA256',
+            'ChecksumCRC32'      => true,
+            'ChecksumCRC32C'     => true,
+            'ChecksumCRC64NVME'  => true,
+            'ChecksumSHA1'       => true,
+            'ChecksumSHA256'     => true,
         ];
 
-        foreach ($algorithms as $algorithm) {
-            if (isset($requestArgs[$algorithm])) {
+        foreach ($requestArgs as $key => $_) {
+            if (isset($algorithms[$key])) {
                 return true;
             }
         }

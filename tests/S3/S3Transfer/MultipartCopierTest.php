@@ -5,6 +5,7 @@ use Aws\Result;
 use Aws\Command;
 use Aws\Exception\AwsException;
 use Aws\S3\S3Transfer\AbstractMultipartUploader;
+use Aws\S3\S3Transfer\Models\CopyResult;
 use Aws\S3\S3Transfer\MultipartCopier;
 use Aws\S3\S3Transfer\Models\CopyResponse;
 use Aws\S3\S3Transfer\Progress\TransferListener;
@@ -234,14 +235,13 @@ class MultipartCopierTest extends TestCase
         );
 
         $result   = $copier->copy()->wait();
-        $response = $result->getCopyResponse();
 
-        $this->assertInstanceOf(CopyResponse::class, $result);
+        $this->assertInstanceOf(CopyResult::class, $result);
         $parts = $copier->getParts();
         $this->assertCount(2, $parts);
         $this->assertSame('etag1', $parts[0]['ETag']);
         $this->assertSame('etag2', $parts[1]['ETag']);
-        $this->assertSame($url, $response['ObjectURL']);
+        $this->assertSame($url, $result['ObjectURL']);
     }
 
     /**
@@ -440,7 +440,7 @@ class MultipartCopierTest extends TestCase
         );
 
         $response = $copier->copy()->wait();
-        $this->assertInstanceOf(CopyResponse::class, $response);
+        $this->assertInstanceOf(CopyResult::class, $response);
     }
 
     /**
@@ -599,7 +599,7 @@ class MultipartCopierTest extends TestCase
         );
 
         $response = $copier->copy()->wait();
-        $this->assertInstanceOf(CopyResponse::class, $response);
+        $this->assertInstanceOf(CopyResult::class, $response);
     }
 
     /**

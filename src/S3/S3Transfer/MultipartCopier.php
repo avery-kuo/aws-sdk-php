@@ -4,7 +4,7 @@ namespace Aws\S3\S3Transfer;
 
 use Aws\ResultInterface;
 use Aws\S3\S3ClientInterface;
-use Aws\S3\S3Transfer\Models\CopyResponse;
+use Aws\S3\S3Transfer\Models\CopyResult;
 use Aws\S3\S3Transfer\Progress\TransferListenerNotifier;
 use Aws\S3\S3Transfer\Progress\TransferProgressSnapshot;
 use Aws\Arn\ArnParser;
@@ -50,7 +50,6 @@ class MultipartCopier extends AbstractMultipartUploader
         ?TransferProgressSnapshot $currentSnapshot = null,
         ?TransferListenerNotifier $listenerNotifier = null,
     ) {
-
         if (empty($source['Bucket']) || empty($source['Key'])) {
             throw new \InvalidArgumentException(
                 "The source array must contain 'Bucket' and 'Key' parameters"
@@ -58,11 +57,13 @@ class MultipartCopier extends AbstractMultipartUploader
         }
 
         if ($source['Bucket'] === $createMultipartArgs['Bucket']
-            && $source['Key'] === $createMultipartArgs['Key']) {
+            && $source['Key'] === $createMultipartArgs['Key']
+        ) {
             throw new \InvalidArgumentException(
                 "Source and destination cannot be the same object"
             );
         }
+
         parent::__construct(
             s3Client: $s3Client,
             createMultipartArgs: $createMultipartArgs,
@@ -102,23 +103,18 @@ class MultipartCopier extends AbstractMultipartUploader
      */
     protected function getTotalSize(): int
     {
-        if (! isset($this->calculatedObjectSize)) {
-            if (isset($this->config['object_size'])) {
-                $this->calculatedObjectSize = (int) $this->config['object_size'];
-            } else {
-                $this->calculatedObjectSize = $this->getSourceSize();
-            }
-        }
-        return $this->calculatedObjectSize;
+        return $this->calculatedObjectSize ??= isset($this->config['object_size'])
+            ? (int) $this->config['object_size']
+            : $this->getSourceSize();
     }
 
     /**
      * @param ResultInterface $result
-     * @return CopyResponse
+     * @return CopyResult
      */
-    protected function createResponse(ResultInterface $result): CopyResponse
+    protected function createResponse(ResultInterface $result): CopyResult
     {
-        return new CopyResponse($result->toArray());
+        return new CopyResult($result->toArray());
     }
 
     /**
@@ -217,6 +213,7 @@ class MultipartCopier extends AbstractMultipartUploader
                 'Key' => $this->source['Key'],
                 'VersionId' => $this->source['VersionId'] ?? null,
             ]);
+
             return $result['ContentLength'];
         } catch (Throwable $e) {
             throw new \RuntimeException(
@@ -226,5 +223,4 @@ class MultipartCopier extends AbstractMultipartUploader
             );
         }
     }
-
 }

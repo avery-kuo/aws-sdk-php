@@ -2,15 +2,16 @@
 
 namespace Aws\S3\S3Transfer;
 
+use Aws\Arn\AccessPointArn;
 use Aws\Arn\ArnParser;
 use Aws\S3\S3Client;
 use Aws\S3\S3ClientInterface;
 use Aws\S3\S3Transfer\Exceptions\S3TransferException;
+use Aws\S3\S3Transfer\Models\CopyResult;
 use Aws\S3\S3Transfer\Models\DownloadDirectoryResponse;
 use Aws\S3\S3Transfer\Models\DownloadResponse;
 use Aws\S3\S3Transfer\Models\UploadDirectoryResponse;
 use Aws\S3\S3Transfer\Models\UploadResponse;
-use Aws\S3\S3Transfer\Models\CopyResponse;
 use Aws\S3\S3Transfer\Progress\MultiProgressTracker;
 use Aws\S3\S3Transfer\Progress\SingleProgressTracker;
 use Aws\S3\S3Transfer\Progress\TransferListener;
@@ -69,7 +70,7 @@ class S3TransferManager
      */
     public function __construct(
         ?S3ClientInterface $s3Client = null,
-        array              $config = []
+        array $config = []
     ){
         $this->config = [
             ...self::$defaultConfig,
@@ -123,10 +124,10 @@ class S3TransferManager
      */
     public function upload(
         string|StreamInterface $source,
-        array                  $requestArgs = [],
-        array                  $config = [],
-        array                  $listeners = [],
-        ?TransferListener      $progressTracker = null,
+        array $requestArgs = [],
+        array $config = [],
+        array $listeners = [],
+        ?TransferListener $progressTracker = null,
     ): PromiseInterface
     {
         // Make sure it is a valid in path in case of a string
@@ -135,6 +136,7 @@ class S3TransferManager
                 "Please provide a valid readable file path or a valid stream as source."
             );
         }
+
         // Valid required parameters
         foreach (['Bucket', 'Key'] as $reqParam) {
             $this->requireNonEmpty(
@@ -169,6 +171,7 @@ class S3TransferManager
         }
 
         $listenerNotifier = new TransferListenerNotifier($listeners);
+
         if ($this->requiresMultipartUpload($source, $mupThreshold)) {
             return $this->tryMultipartUpload(
                 $source,
@@ -226,11 +229,11 @@ class S3TransferManager
      * @return PromiseInterface
      */
     public function uploadDirectory(
-        string            $sourceDirectory,
-        string            $bucketTo,
-        array             $uploadDirectoryRequestArgs = [],
-        array             $config = [],
-        array             $listeners = [],
+        string $sourceDirectory,
+        string $bucketTo,
+        array $uploadDirectoryRequestArgs = [],
+        array $config = [],
+        array $listeners = [],
         ?TransferListener $progressTracker = null,
     ): PromiseInterface
     {
@@ -244,7 +247,8 @@ class S3TransferManager
         $bucketTo = $this->parseBucket($bucketTo);
 
         if ($progressTracker === null
-            && ($config['track_progress'] ?? $this->config['track_progress'])) {
+            && ($config['track_progress'] ?? $this->config['track_progress'])
+        ) {
             $progressTracker = new MultiProgressTracker();
         }
 
@@ -407,10 +411,10 @@ class S3TransferManager
      * @return PromiseInterface
      */
     public function download(
-        string|array      $source,
-        array             $downloadRequestArgs = [],
-        array             $config = [],
-        array             $listeners = [],
+        string|array $source,
+        array $downloadRequestArgs = [],
+        array $config = [],
+        array $listeners = [],
         ?TransferListener $progressTracker = null,
     ): PromiseInterface
     {
@@ -523,11 +527,11 @@ class S3TransferManager
      * @return PromiseInterface
      */
     public function downloadDirectory(
-        string            $bucket,
-        string            $destinationDirectory,
-        array             $downloadDirectoryArgs = [],
-        array             $config = [],
-        array             $listeners = [],
+        string $bucket,
+        string $destinationDirectory,
+        array $downloadDirectoryArgs = [],
+        array $config = [],
+        array $listeners = [],
         ?TransferListener $progressTracker = null,
     ): PromiseInterface
     {
@@ -688,8 +692,8 @@ class S3TransferManager
      * @return PromiseInterface
      */
     private function tryMultipartDownload(
-        array                     $requestArgs,
-        array                     $config = [],
+        array $requestArgs,
+        array $config = [],
         ?TransferListenerNotifier $listenerNotifier = null,
     ): PromiseInterface
     {
@@ -715,7 +719,7 @@ class S3TransferManager
      * @return PromiseInterface
      */
     private function trySingleDownload(
-        array                     $requestArgs,
+        array $requestArgs,
         ?TransferListenerNotifier $listenerNotifier = null,
     ): PromiseInterface
     {
@@ -791,8 +795,8 @@ class S3TransferManager
      * @return PromiseInterface
      */
     private function trySingleUpload(
-        string|StreamInterface    $source,
-        array                     $requestArgs,
+        string|StreamInterface $source,
+        array $requestArgs,
         ?TransferListenerNotifier $listenerNotifier = null
     ): PromiseInterface
     {
@@ -882,9 +886,9 @@ class S3TransferManager
      * @return PromiseInterface
      */
     private function tryMultipartUpload(
-        string|StreamInterface    $source,
-        array                     $requestArgs,
-        array                     $config = [],
+        string|StreamInterface $source,
+        array $requestArgs,
+        array $config = [],
         ?TransferListenerNotifier $listenerNotifier = null,
     ): PromiseInterface
     {
@@ -906,7 +910,7 @@ class S3TransferManager
      */
     private function requiresMultipartUpload(
         string|StreamInterface $source,
-        int                    $mupThreshold
+        int $mupThreshold
     ): bool
     {
         if (is_string($source) && is_readable($source)) {
@@ -1039,7 +1043,7 @@ class S3TransferManager
                     return true;
                 }
             } else {
-                $resolved [] = $section;
+                $resolved[] = $section;
             }
         }
 
@@ -1064,16 +1068,15 @@ class S3TransferManager
      * @return PromiseInterface
      */
     public function copy(
-        array            $source,
-        array             $copyRequestArgs,
-        array             $config = [],
-        array             $listeners = [],
+        array $source,
+        array $copyRequestArgs,
+        array $config = [],
+        array $listeners = [],
         ?TransferListener $progressTracker = null,
     ): PromiseInterface
     {
         // Valid required parameters for both source and destination
         $required = ['Bucket', 'Key'];
-
         $this->validateRequiredParams($required, $source, 'source array');
         $this->validateRequiredParams($required, $copyRequestArgs, 'copy request arguments');
 
@@ -1088,8 +1091,10 @@ class S3TransferManager
                 . "must be greater than or equal to " . AbstractMultipartUploader::PART_MIN_SIZE
             );
         }
+
         if ($progressTracker === null
-            && ($config['track_progress'] ?? $this->config['track_progress'])) {
+            && ($config['track_progress'] ?? $this->config['track_progress'])
+        ) {
             $progressTracker = new SingleProgressTracker();
         }
 
@@ -1098,7 +1103,6 @@ class S3TransferManager
         }
 
         $listenerNotifier = new TransferListenerNotifier($listeners);
-
 
         // Determine if multipart copy is required
         if ($this->requiresMultipartCopy(source: $source, mupThreshold: $mupThreshold)) {
@@ -1125,7 +1129,6 @@ class S3TransferManager
             copyRequestArgs: $copyRequestArgs,
             listenerNotifier: $listenerNotifier
         );
-
     }
 
     /**
@@ -1166,22 +1169,25 @@ class S3TransferManager
         array $source,
         array $copyRequestArgs,
         ?TransferListenerNotifier $listenerNotifier = null
-    ): PromiseInterface {
+    ): PromiseInterface
+    {
         $params = [
             'Bucket' => $copyRequestArgs['Bucket'],
             'CopySource' => $this->getSourcePath(source: $source),
             'Key' => $copyRequestArgs['Key']
         ];
+
         $objectSize = $this->s3Client->headObject([
             'Bucket' => $source['Bucket'],
             'Key'    => $source['Key'],
         ])['ContentLength'];
-        if ($objectSize > 5 * 1024 * 1024 * 1024) {
+        if ($objectSize > AbstractMultipartUploader::PART_MAX_SIZE) {
             throw new \InvalidArgumentException(
                 "Cannot perform single-copy operation: source object size "
                 . "is greater than 5 GB. Use multipart copy instead."
             );
         }
+
         $command = $this->s3Client->getCommand('CopyObject', $params);
         $promise = $this->s3Client->executeAsync($command);
 
@@ -1214,7 +1220,8 @@ class S3TransferManager
                             $result->toArray()
                         ),
                     ]);
-                    return new CopyResponse($result->toArray());
+
+                    return new CopyResult($result->toArray());
                 }
             )->otherwise(function ($reason) use ($objectSize, $copyRequestArgs, $listenerNotifier) {
                 $listenerNotifier->transferFail([
@@ -1226,12 +1233,13 @@ class S3TransferManager
                     ),
                     'reason' => $reason,
                 ]);
+
                 throw $reason;
             });
         }
 
         return $promise->then(function ($result) {
-            return new CopyResponse($result->toArray());
+            return new CopyResult($result->toArray());
         });
     }
 
@@ -1247,7 +1255,6 @@ class S3TransferManager
                 "Source and destination cannot be the same object"
             );
         }
-
     }
 
     /**
@@ -1291,6 +1298,7 @@ class S3TransferManager
             'Key'    => $source['Key'],
         ]);
         $objectSize = $result['ContentLength'];
+
         return $objectSize >= $mupThreshold;
     }
 
@@ -1300,7 +1308,11 @@ class S3TransferManager
      * @param string $contextName
      * @return void
      */
-    private function validateRequiredParams(array $params, array $context, string $contextName): void
+    private function validateRequiredParams(
+        array $params,
+        array $context,
+        string $contextName
+    ): void
     {
         foreach ($params as $param) {
             $this->requireNonEmpty(
