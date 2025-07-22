@@ -6,6 +6,7 @@ use Aws\CommandInterface;
 use Aws\CommandPool;
 use Aws\ResultInterface;
 use Aws\S3\S3ClientInterface;
+use Aws\S3\S3Transfer\Models\S3TransferManagerConfig;
 use Aws\S3\S3Transfer\Progress\TransferListener;
 use Aws\S3\S3Transfer\Progress\TransferListenerNotifier;
 use Aws\S3\S3Transfer\Progress\TransferProgressSnapshot;
@@ -23,12 +24,13 @@ abstract class AbstractMultipartUploader implements PromisorInterface
     public const PART_MIN_SIZE = 5 * 1024 * 1024; // 5 MiB
     public const PART_MAX_SIZE = 5 * 1024 * 1024 * 1024; // 5 GiB
     public const PART_MAX_NUM = 10000;
+    public const DEFAULT_CHECKSUM_CALCULATION_ALGORITHM = 'crc32';
 
     /** @var S3ClientInterface */
     protected readonly S3ClientInterface $s3Client;
 
     /** @var array @ */
-    protected readonly array $createMultipartArgs;
+    protected readonly array $requestArgs;
 
     /** @var array @ */
     protected readonly array $config;
@@ -43,7 +45,7 @@ abstract class AbstractMultipartUploader implements PromisorInterface
     protected int $calculatedObjectSize;
 
     /** @var array */
-    private array $deferFns = [];
+    protected array $onCompletionCallbacks = [];
 
     /** @var TransferListenerNotifier|null */
     protected ?TransferListenerNotifier $listenerNotifier;
@@ -53,9 +55,26 @@ abstract class AbstractMultipartUploader implements PromisorInterface
     protected ?TransferProgressSnapshot $currentSnapshot;
 
     /**
+     * This will be used for custom or default checksum.
+     *
+     * @var string | null
+     */
+    protected ?string $requestChecksum = null;
+
+    /**
+     * This will be used for custom or default checksum.
+     *
+     * @var string | null
+     */
+    protected ?string $requestChecksumAlgorithm = null;
+
+    /**
      * @param S3ClientInterface $s3Client
-     * @param array $createMultipartArgs
+     * @param array $requestArgs
      * @param array $config
+     * - target_part_size_bytes: (int, optional)
+     * - request_checksum_calculation: (string, optional)
+     * - concurrency: (int, optional)
      * @param string|null $uploadId
      * @param array $parts
      * @param TransferProgressSnapshot|null $currentSnapshot
@@ -64,16 +83,15 @@ abstract class AbstractMultipartUploader implements PromisorInterface
     public function __construct
     (
         S3ClientInterface $s3Client,
-        array $createMultipartArgs,
+        array $requestArgs,
         array $config,
         ?string $uploadId = null,
         array $parts = [],
         ?TransferProgressSnapshot $currentSnapshot = null,
         ?TransferListenerNotifier $listenerNotifier = null,
-    )
-    {
+    ) {
         $this->s3Client = $s3Client;
-        $this->createMultipartArgs = $createMultipartArgs;
+        $this->requestArgs = $requestArgs;
         $this->validateConfig($config);
         $this->config = $config;
         $this->uploadId = $uploadId;
@@ -89,13 +107,24 @@ abstract class AbstractMultipartUploader implements PromisorInterface
      */
     protected function validateConfig(array &$config): void
     {
-        if (!isset($config['part_size'])) {
-            $config['part_size'] = self::PART_MIN_SIZE;
+        if (!isset($config['target_part_size_bytes'])) {
+            $config['target_part_size_bytes'] = S3TransferManagerConfig::DEFAULT_TARGET_PART_SIZE_BYTES;
         }
-        $partSize = $config['part_size'];
-        if (!is_int($partSize) || $partSize < self::PART_MIN_SIZE || $partSize > self::PART_MAX_SIZE) {
+
+        if (!isset($config['concurrency'])) {
+            $config['concurrency'] = S3TransferManagerConfig::DEFAULT_CONCURRENCY;
+        }
+
+        if (!isset($config['request_checksum_calculation'])) {
+            $config['request_checksum_calculation'] = 'when_supported';
+        }
+
+        $partSize = $config['target_part_size_bytes'];
+        if ($partSize < self::PART_MIN_SIZE || $partSize > self::PART_MAX_SIZE) {
             throw new \InvalidArgumentException(
-                "Invalid `part_size`: " . var_export($partSize, true)
+                "Part size config must be between " . self::PART_MIN_SIZE
+                ." and " . self::PART_MAX_SIZE . " bytes "
+                ."but it is configured to $partSize"
             );
         }
     }
@@ -137,6 +166,8 @@ abstract class AbstractMultipartUploader implements PromisorInterface
                 $result = yield $this->completeMultipartUpload();
                 yield Create::promiseFor($this->createResponse($result));
             } catch (Throwable $e) {
+                $this->operationFailed($e);
+                yield Create::rejectionFor($e);
                 $resumeEnabled = $this->config['resumable_upload_object'];
                 if ($resumeEnabled && $this->uploadId !== null) {
                     yield Create::promiseFor($this->buildResumableUpload($e));
@@ -145,7 +176,7 @@ abstract class AbstractMultipartUploader implements PromisorInterface
                     yield Create::rejectionFor($e);
                 }
             } finally {
-                $this->callDeferredFns();
+                $this->callOnCompletionCallbacks();
             }
         });
     }
@@ -155,10 +186,21 @@ abstract class AbstractMultipartUploader implements PromisorInterface
      */
     protected function createMultipartUpload(): PromiseInterface
     {
-        $this->operationInitiated($this->createMultipartArgs);
+        $createMultipartUploadArgs = $this->requestArgs;
+        if ($this->requestChecksum !== null) {
+            $createMultipartUploadArgs['ChecksumType'] = 'FULL_OBJECT';
+            $createMultipartUploadArgs['ChecksumAlgorithm'] = $this->requestChecksumAlgorithm;
+        } elseif ($this->config['request_checksum_calculation'] === 'when_supported') {
+            $this->requestChecksumAlgorithm = $createMultipartUploadArgs['ChecksumAlgorithm']
+                ?? self::DEFAULT_CHECKSUM_CALCULATION_ALGORITHM;
+            $createMultipartUploadArgs['ChecksumType'] = 'FULL_OBJECT';
+            $createMultipartUploadArgs['ChecksumAlgorithm'] = $this->requestChecksumAlgorithm;
+        }
+
+        $this->operationInitiated($createMultipartUploadArgs);
         $command = $this->s3Client->getCommand(
             'CreateMultipartUpload',
-            $this->createMultipartArgs
+            $createMultipartUploadArgs
         );
 
         return $this->s3Client->executeAsync($command)
@@ -174,16 +216,18 @@ abstract class AbstractMultipartUploader implements PromisorInterface
     protected function completeMultipartUpload(): PromiseInterface
     {
         $this->sortParts();
-        $completeMultipartUploadArgs = [
-            ...$this->createMultipartArgs,
-            'UploadId' => $this->uploadId,
-            'MultipartUpload' => [
-                'Parts' => $this->parts
-            ]
+        $completeMultipartUploadArgs = $this->requestArgs;
+        $completeMultipartUploadArgs['UploadId'] = $this->uploadId;
+        $completeMultipartUploadArgs['MultipartUpload'] = [
+            'Parts' => $this->parts
         ];
+        $completeMultipartUploadArgs['MpuObjectSize'] = $this->getTotalSize();
 
-        if ($this->containsChecksum($this->createMultipartArgs)) {
+        if ($this->requestChecksum !== null) {
             $completeMultipartUploadArgs['ChecksumType'] = 'FULL_OBJECT';
+            $completeMultipartUploadArgs[
+                'Checksum' . ucfirst($this->requestChecksumAlgorithm)
+            ] = $this->requestChecksum;
         }
 
         $command = $this->s3Client->getCommand(
@@ -203,9 +247,11 @@ abstract class AbstractMultipartUploader implements PromisorInterface
      */
     protected function abortMultipartUpload(): PromiseInterface
     {
-        $command = $this->s3Client->getCommand
-        ('AbortMultipartUpload',
-            [...$this->createMultipartArgs, 'UploadId' => $this->uploadId,]
+        $abortMultipartUploadArgs = $this->requestArgs;
+        $abortMultipartUploadArgs['UploadId'] = $this->uploadId;
+        $command = $this->s3Client->getCommand(
+            'AbortMultipartUpload',
+            $abortMultipartUploadArgs
         );
 
         return $this->s3Client->executeAsync($command);
@@ -226,8 +272,7 @@ abstract class AbstractMultipartUploader implements PromisorInterface
      * @param CommandInterface $command
      * @return void
      */
-    protected function collectPart
-    (
+    protected function collectPart(
         ResultInterface $result,
         CommandInterface $command
     ): void
@@ -257,8 +302,7 @@ abstract class AbstractMultipartUploader implements PromisorInterface
      * @param callable $rejectedCallback
      * @return PromiseInterface
      */
-    protected function createCommandPool
-    (
+    protected function createCommandPool(
         array $commands,
         callable $fulfilledCallback,
         callable $rejectedCallback
@@ -312,7 +356,8 @@ abstract class AbstractMultipartUploader implements PromisorInterface
         $this->currentSnapshot = $newSnapshot;
 
         $this->listenerNotifier?->transferComplete([
-            TransferListener::REQUEST_ARGS_KEY => $this->createMultipartArgs,
+            TransferListener::REQUEST_ARGS_KEY =>
+                $this->requestArgs,
             TransferListener::PROGRESS_SNAPSHOT_KEY => $this->currentSnapshot
         ]);
     }
@@ -329,6 +374,14 @@ abstract class AbstractMultipartUploader implements PromisorInterface
             return;
         }
 
+        if ($this->currentSnapshot === null) {
+            $this->currentSnapshot = new TransferProgressSnapshot(
+                'Unknown',
+                0,
+                0,
+            );
+        }
+
         $this->currentSnapshot = new TransferProgressSnapshot(
             $this->currentSnapshot->getIdentifier(),
             $this->currentSnapshot->getTransferredBytes(),
@@ -338,11 +391,16 @@ abstract class AbstractMultipartUploader implements PromisorInterface
         );
 
         if (!empty($this->uploadId)) {
+            error_log(
+                "Multipart Upload with id: " . $this->uploadId . " failed",
+                E_USER_WARNING
+            );
             $this->abortMultipartUpload()->wait();
         }
 
         $this->listenerNotifier?->transferFail([
-            TransferListener::REQUEST_ARGS_KEY => $this->createMultipartArgs,
+            TransferListener::REQUEST_ARGS_KEY =>
+                $this->requestArgs,
             TransferListener::PROGRESS_SNAPSHOT_KEY => $this->currentSnapshot,
             'reason' => $reason,
         ]);
@@ -353,8 +411,7 @@ abstract class AbstractMultipartUploader implements PromisorInterface
      * @param array $requestArgs
      * @return void
      */
-    protected function partCompleted
-    (
+    protected function partCompleted(
         int $partSize,
         array $requestArgs
     ): void
@@ -378,13 +435,13 @@ abstract class AbstractMultipartUploader implements PromisorInterface
     /**
      * @return void
      */
-    protected function callDeferredFns(): void
+    protected function callOnCompletionCallbacks(): void
     {
-        foreach ($this->deferFns as $fn) {
+        foreach ($this->onCompletionCallbacks as $fn) {
             $fn();
         }
 
-        $this->deferFns = [];
+        $this->onCompletionCallbacks = [];
     }
 
     /**
@@ -397,26 +454,14 @@ abstract class AbstractMultipartUploader implements PromisorInterface
     }
 
     /**
-     * @param array $requestArgs
-     * @return bool
+     * @return int
      */
-    protected function containsChecksum(array $requestArgs): bool
+    protected function calculatePartSize(): int
     {
-        static $algorithms = [
-            'ChecksumCRC32'      => true,
-            'ChecksumCRC32C'     => true,
-            'ChecksumCRC64NVME'  => true,
-            'ChecksumSHA1'       => true,
-            'ChecksumSHA256'     => true,
-        ];
-
-        foreach ($requestArgs as $key => $_) {
-            if (isset($algorithms[$key])) {
-                return true;
-            }
-        }
-
-        return false;
+        return max(
+            $this->getTotalSize() / self::PART_MAX_NUM,
+            $this->config['target_part_size_bytes']
+        );
     }
 
     /**
@@ -455,6 +500,7 @@ abstract class AbstractMultipartUploader implements PromisorInterface
 
     /**
      * @param ResultInterface $result
+     *
      * @return mixed
      */
     abstract protected function createResponse(ResultInterface $result): mixed;

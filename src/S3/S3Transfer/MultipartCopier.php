@@ -31,7 +31,7 @@ class MultipartCopier extends AbstractMultipartUploader
 
     /**
      * @param S3ClientInterface $s3Client
-     * @param array $createMultipartArgs
+     * @param array $requestArgs
      * @param array $config
      * @param array $source
      * @param string|null $uploadId
@@ -39,39 +39,44 @@ class MultipartCopier extends AbstractMultipartUploader
      * @param TransferProgressSnapshot|null $currentSnapshot
      * @param TransferListenerNotifier|null $listenerNotifier
      */
-    public function __construct
-    (
+    public function __construct(
         S3ClientInterface $s3Client,
-        array $createMultipartArgs,
+        array $requestArgs,
         array $config,
         array $source,
         ?string $uploadId = null,
         array $parts = [],
         ?TransferProgressSnapshot $currentSnapshot = null,
-        ?TransferListenerNotifier $listenerNotifier = null,
+        ?TransferListenerNotifier $listenerNotifier = null
     ) {
-        if (empty($source['Bucket']) || empty($source['Key'])) {
+        $partSize = $config['part_size'] ?? self::PART_MIN_SIZE;
+        if ($partSize < self::PART_MIN_SIZE || $partSize > self::PART_MAX_SIZE) {
             throw new \InvalidArgumentException(
-                "The source array must contain 'Bucket' and 'Key' parameters"
+                "Part size must be between "
+                . self::PART_MIN_SIZE
+                . " and "
+                . self::PART_MAX_SIZE
             );
         }
+        $config['part_size'] = $partSize;
 
-        if ($source['Bucket'] === $createMultipartArgs['Bucket']
-            && $source['Key'] === $createMultipartArgs['Key']
+        if (empty($source['Bucket']) || empty($source['Key'])) {
+            throw new \InvalidArgumentException("The source array must contain 'Bucket' and 'Key'");
+        }
+        if ($source['Bucket'] === $requestArgs['Bucket']
+            && $source['Key']    === $requestArgs['Key']
         ) {
-            throw new \InvalidArgumentException(
-                "Source and destination cannot be the same object"
-            );
+            throw new \InvalidArgumentException("Source and destination cannot be the same object");
         }
 
         parent::__construct(
-            s3Client: $s3Client,
-            createMultipartArgs: $createMultipartArgs,
-            config: $config,
-            uploadId: $uploadId,
-            parts: $parts,
-            currentSnapshot: $currentSnapshot,
-            listenerNotifier: $listenerNotifier
+            $s3Client,
+            $requestArgs,
+            $config,
+            $uploadId,
+            $parts,
+            $currentSnapshot,
+            $listenerNotifier
         );
 
         $this->source = $source;
@@ -144,7 +149,7 @@ class MultipartCopier extends AbstractMultipartUploader
             $copySource = $this->getSourcePath($this->source);
 
             $copyPartArgs = [
-                ...$this->createMultipartArgs,
+                ...$this->requestArgs,
                 'UploadId' => $this->uploadId,
                 'PartNumber' => $partNumber,
                 'CopySource' => $copySource,

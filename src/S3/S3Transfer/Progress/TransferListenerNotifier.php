@@ -23,13 +23,23 @@ class TransferListenerNotifier extends TransferListener
     }
 
     /**
+     * @param TransferListener $listener
+     *
+     * @return void
+     */
+    public function addListener(TransferListener $listener): void
+    {
+        $this->listeners[] = $listener;
+    }
+
+    /**
      * @inheritDoc
      *
      * @return void
      */
     public function transferInitiated(array $context): void
     {
-        foreach ($this->listeners as $name => $listener) {
+        foreach ($this->listeners as $listener) {
             $listener->transferInitiated($context);
         }
     }
@@ -41,7 +51,7 @@ class TransferListenerNotifier extends TransferListener
      */
     public function bytesTransferred(array $context): void
     {
-        foreach ($this->listeners as $name => $listener) {
+        foreach ($this->listeners as $listener) {
             $listener->bytesTransferred($context);
         }
     }
@@ -53,7 +63,7 @@ class TransferListenerNotifier extends TransferListener
      */
     public function transferComplete(array $context): void
     {
-        foreach ($this->listeners as $name => $listener) {
+        foreach ($this->listeners as $listener) {
             $listener->transferComplete($context);
         }
     }
@@ -65,7 +75,7 @@ class TransferListenerNotifier extends TransferListener
      */
     public function transferFail(array $context): void
     {
-        foreach ($this->listeners as $name => $listener) {
+        foreach ($this->listeners as $listener) {
             $listener->transferFail($context);
         }
     }

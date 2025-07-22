@@ -85,7 +85,6 @@ class MultipartCopierTest extends TestCase
         $copier->copy()->wait();
     }
 
-
     /**
      * @return void
      */
@@ -108,8 +107,6 @@ class MultipartCopierTest extends TestCase
             ['Bucket' => 'src', 'Key' => 'key']
         ))->copy()->wait();
     }
-
-
 
     /**
      * @return void
@@ -501,8 +498,6 @@ class MultipartCopierTest extends TestCase
             );
         }
     }
-
-
 
     /**
      * @param int $partSize

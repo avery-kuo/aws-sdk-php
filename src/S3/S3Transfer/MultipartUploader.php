@@ -6,7 +6,7 @@ use Aws\HashingStream;
 use Aws\PhpHash;
 use Aws\ResultInterface;
 use Aws\S3\S3ClientInterface;
-use Aws\S3\S3Transfer\Models\UploadResponse;
+use Aws\S3\S3Transfer\Models\UploadResult;
 use Aws\S3\S3Transfer\Progress\TransferListenerNotifier;
 use Aws\S3\S3Transfer\Progress\TransferProgressSnapshot;
 use GuzzleHttp\Promise\Create;
@@ -22,7 +22,6 @@ use Throwable;
  */
 class MultipartUploader extends AbstractMultipartUploader
 {
-    const DEFAULT_CHECKSUM_CALCULATION_ALGORITHM = 'crc32';
 
     /** @var int */
     protected int $calculatedObjectSize;
@@ -32,22 +31,20 @@ class MultipartUploader extends AbstractMultipartUploader
 
     /** @var HashContext */
     private HashContext $hashContext;
-    private $requestChecksumAlgorithm;
 
     public function __construct(
         S3ClientInterface $s3Client,
-        array $createMultipartArgs,
+        array $requestArgs,
         array $config,
         string | StreamInterface $source,
         ?string $uploadId = null,
         array $parts = [],
         ?TransferProgressSnapshot $currentSnapshot = null,
         ?TransferListenerNotifier $listenerNotifier = null,
-    )
-    {
+    ) {
         parent::__construct(
             $s3Client,
-            $createMultipartArgs,
+            $requestArgs,
             $config,
             $uploadId,
             $parts,
@@ -56,6 +53,7 @@ class MultipartUploader extends AbstractMultipartUploader
         );
         $this->body = $this->parseBody($source);
         $this->calculatedObjectSize = 0;
+        $this->evaluateCustomChecksum();
     }
 
     /**
@@ -76,7 +74,7 @@ class MultipartUploader extends AbstractMultipartUploader
             }
             $body = new LazyOpenStream($source, 'r');
             // To make sure the resource is closed.
-            $this->deferFns[] = function () use ($body) {
+            $this->onCompletionCallbacks[] = function () use ($body) {
                 $body->close();
             };
         } elseif ($source instanceof StreamInterface) {
@@ -90,25 +88,53 @@ class MultipartUploader extends AbstractMultipartUploader
         return $body;
     }
 
+    /**
+     * @return void
+     */
+    private function evaluateCustomChecksum(): void
+    {
+        // Evaluation for custom provided checksums
+        $checksumName = self::filterChecksum($this->requestArgs);
+        if ($checksumName !== null) {
+            $this->requestChecksum = $this->requestArgs[$checksumName];
+            $this->requestChecksumAlgorithm = str_replace(
+                'Checksum',
+                '',
+                $checksumName
+            );
+        } else {
+            $this->requestChecksum = null;
+            $this->requestChecksumAlgorithm = null;
+        }
+    }
+
     protected function processMultipartOperation(): PromiseInterface
     {
+        $uploadPartCommandArgs = $this->requestArgs;
         $this->calculatedObjectSize = 0;
         $partSize = $this->calculatePartSize();
         $partsCount = ceil($this->getTotalSize() / $partSize);
         $commands = [];
         $partNo = count($this->parts);
-        $uploadPartCommandArgs = [...$this->createMultipartArgs];
         $uploadPartCommandArgs['UploadId'] = $this->uploadId;
         // Customer provided checksum
         $hashBody = false;
         if ($this->requestChecksum !== null) {
             // To avoid default calculation
             $uploadPartCommandArgs['@context']['request_checksum_calculation'] = 'when_required';
-        } elseif ($this->requestChecksumAlgorithm === self::DEFAULT_CHECKSUM_CALCULATION_ALGORITHM) {
+            unset($uploadPartCommandArgs['Checksum'. ucfirst($this->requestChecksumAlgorithm)]);
+        } elseif ($this->requestChecksumAlgorithm !== null) {
+            // Normalize algorithm name
+            $algoName = strtolower($this->requestChecksumAlgorithm);
+            if ($algoName === self::DEFAULT_CHECKSUM_CALCULATION_ALGORITHM) {
+                $algoName = 'crc32b';
+            }
+
             $hashBody = true;
-            $this->hashContext = hash_init('crc32b');
+            $this->hashContext = hash_init($algoName);
             // To avoid default calculation
             $uploadPartCommandArgs['@context']['request_checksum_calculation'] = 'when_required';
+            unset($uploadPartCommandArgs['Checksum'. ucfirst($this->requestChecksumAlgorithm)]);
         }
 
         while (!$this->body->eof()) {
@@ -124,9 +150,8 @@ class MultipartUploader extends AbstractMultipartUploader
                 hash_update($this->hashContext, $read);
             }
 
-            $partBody  = Utils::streamFor(
-                $read
-            );
+            $partBody = Utils::streamFor($read);
+
             $uploadPartCommandArgs['PartNumber'] = $partNo;
             $uploadPartCommandArgs['ContentLength'] = $partBody->getSize();
             // Attach body
@@ -200,11 +225,11 @@ class MultipartUploader extends AbstractMultipartUploader
     /**
      * @param ResultInterface $result
      *
-     * @return UploadResponse
+     * @return UploadResult
      */
-    protected function createResponse(ResultInterface $result): UploadResponse
+    protected function createResponse(ResultInterface $result): UploadResult
     {
-        return new UploadResponse(
+        return new UploadResult(
             $result->toArray()
         );
     }
@@ -215,7 +240,10 @@ class MultipartUploader extends AbstractMultipartUploader
      *
      * @return StreamInterface
      */
-    private function decorateWithHashes(StreamInterface $stream, array &$data): StreamInterface
+    private function decorateWithHashes(
+        StreamInterface $stream,
+        array &$data
+    ): StreamInterface
     {
         // Decorate source with a hashing stream
         $hash = new PhpHash('sha256');
@@ -225,13 +253,27 @@ class MultipartUploader extends AbstractMultipartUploader
     }
 
     /**
-     * @return int
+     * Filters a provided checksum if one was provided.
+     *
+     * @param array $requestArgs
+     *
+     * @return string | null
      */
-    protected function calculatePartSize(): int
+    private static function filterChecksum(array $requestArgs):? string
     {
-        return max(
-            $this->getTotalSize() / self::PART_MAX_NUM,
-            $this->config['part_size']
-        );
+        static $algorithms = [
+            'ChecksumCRC32',
+            'ChecksumCRC32C',
+            'ChecksumCRC64NVME',
+            'ChecksumSHA1',
+            'ChecksumSHA256',
+        ];
+        foreach ($algorithms as $algorithm) {
+            if (isset($requestArgs[$algorithm])) {
+                return $algorithm;
+            }
+        }
+
+        return null;
     }
 }
