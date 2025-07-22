@@ -91,24 +91,24 @@ class MultipartCopierTest extends TestCase
      */
     public function testThrowsWhenTooManyParts(): void
     {
-        $this->addMockResults($this->client, [
-            new Result([
-                'ContentLength' => (AbstractMultipartUploader::PART_MAX_NUM + 1)
-                    * AbstractMultipartUploader::PART_MIN_SIZE,
-            ]),
-            new Result(['UploadId' => 'x']),
-            new Result([]),
-        ]);
-
         $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Total parts cannot exceed');
+
+        $oversizedObject = (AbstractMultipartUploader::PART_MAX_NUM + 1)
+            * AbstractMultipartUploader::PART_MIN_SIZE;
 
         (new MultipartCopier(
             $this->client,
-            ['Bucket' => 'd', 'Key' => 'k'],
-            ['part_size' => AbstractMultipartUploader::PART_MIN_SIZE, 'concurrency' => 1],
-            ['Bucket' => 's', 'Key' => 'o']
+            ['Bucket' => 'dest', 'Key' => 'key'],
+            [
+                'part_size' => AbstractMultipartUploader::PART_MIN_SIZE,
+                'concurrency' => 1,
+                'object_size' => $oversizedObject,
+            ],
+            ['Bucket' => 'src', 'Key' => 'key']
         ))->copy()->wait();
     }
+
 
 
     /**
@@ -124,7 +124,7 @@ class MultipartCopierTest extends TestCase
             new Result(['Location' => 'u','Key' => 'k','Bucket' => 'b']),
         ]);
 
-        $spy = $this->getMockBuilder(MultipartCopier::class)
+        $mockCopier = $this->getMockBuilder(MultipartCopier::class)
             ->setConstructorArgs([
                 $this->client,
                 ['Bucket' => 'b', 'Key' => 'k'],
@@ -134,14 +134,14 @@ class MultipartCopierTest extends TestCase
             ->onlyMethods(['partCompleted'])
             ->getMock();
 
-        $spy->expects($this->exactly(2))
+        $mockCopier->expects($this->exactly(2))
             ->method('partCompleted')
             ->with(
                 MultipartCopier::PART_MIN_SIZE,
                 $this->arrayHasKey('CopySourceRange')
             );
 
-        $spy->copy()->wait();
+        $mockCopier->copy()->wait();
     }
 
     /**
@@ -258,7 +258,7 @@ class MultipartCopierTest extends TestCase
             new Result(['Location'      => $url,'Key'=>'dest-key','Bucket'=>'dest']),
         ]);
 
-        $spy = $this->getMockBuilder(MultipartCopier::class)
+        $mockCopier = $this->getMockBuilder(MultipartCopier::class)
             ->setConstructorArgs([
                 $this->client,
                 ['Bucket'=>'dest','Key'=>'dest-key'],
@@ -268,14 +268,14 @@ class MultipartCopierTest extends TestCase
             ->onlyMethods(['partCompleted'])
             ->getMock();
 
-        $spy->expects($this->exactly(2))
+        $mockCopier->expects($this->exactly(2))
             ->method('partCompleted')
             ->with(
                 5 * 1024 * 1024,
                 $this->arrayHasKey('CopySourceRange')
             );
 
-        $spy->copy()->wait();
+        $mockCopier->copy()->wait();
     }
 
     /**
@@ -291,7 +291,7 @@ class MultipartCopierTest extends TestCase
         ]);
 
         $abortCalls = 0;
-        $spy = $this->getMockBuilder(MultipartCopier::class)
+        $mockCopier = $this->getMockBuilder(MultipartCopier::class)
             ->setConstructorArgs([
                 $this->client,
                 ['Bucket'=>'dest','Key'=>'dest-key'],
@@ -301,14 +301,14 @@ class MultipartCopierTest extends TestCase
             ->onlyMethods(['abortMultipartUpload'])
             ->getMock();
 
-        $spy->method('abortMultipartUpload')
+        $mockCopier->method('abortMultipartUpload')
             ->willReturnCallback(function () use (&$abortCalls) {
                 $abortCalls++;
                 return \GuzzleHttp\Promise\Create::promiseFor(null);
             });
 
         try {
-            $spy->copy()->wait();
+            $mockCopier->copy()->wait();
             $this->fail('Expected AwsException was not thrown');
         } catch (AwsException $e) {
             $this->assertStringContainsString('Part-copy exploded!', $e->getMessage());

@@ -45,7 +45,6 @@ abstract class AbstractMultipartUploader implements PromisorInterface
     /** @var array */
     private array $deferFns = [];
 
-
     /** @var TransferListenerNotifier|null */
     protected ?TransferListenerNotifier $listenerNotifier;
 
@@ -138,8 +137,13 @@ abstract class AbstractMultipartUploader implements PromisorInterface
                 $result = yield $this->completeMultipartUpload();
                 yield Create::promiseFor($this->createResponse($result));
             } catch (Throwable $e) {
-                $this->operationFailed($e);
-                yield Create::rejectionFor($e);
+                $resumeEnabled = $this->config['resumable_upload_object'];
+                if ($resumeEnabled && $this->uploadId !== null) {
+                    yield Create::promiseFor($this->buildResumableUpload($e));
+                } else {
+                    $this->operationFailed($e);
+                    yield Create::rejectionFor($e);
+                }
             } finally {
                 $this->callDeferredFns();
             }
@@ -414,6 +418,30 @@ abstract class AbstractMultipartUploader implements PromisorInterface
 
         return false;
     }
+
+    /**
+     * @param Throwable $e
+     * @return ResumableMultipartUpload
+     */
+    private function buildResumableUpload(Throwable $e): ResumableMultipartUpload
+    {
+        $this->currentSnapshot = new TransferProgressSnapshot(
+            $this->currentSnapshot?->getIdentifier() ?? '',
+            $this->currentSnapshot?->getTransferredBytes() ?? 0,
+            $this->currentSnapshot?->getTotalBytes() ?? 0,
+            $this->currentSnapshot?->getResponse(),
+            $e
+        );
+
+        return new ResumableMultipartUpload(
+            $this->createMultipartArgs,
+            $this->uploadId,
+            $this->parts,
+            $this->calculatedObjectSize,
+            $this->currentSnapshot
+        );
+    }
+
 
     /**
      * @return PromiseInterface

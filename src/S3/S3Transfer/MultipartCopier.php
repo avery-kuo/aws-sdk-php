@@ -83,6 +83,11 @@ class MultipartCopier extends AbstractMultipartUploader
     public function copy(): PromiseInterface
     {
         try {
+            $totalParts = (int) ceil($this->getTotalSize() / $this->config['part_size']);
+            if ($totalParts > AbstractMultipartUploader::PART_MAX_NUM) {
+                throw new \InvalidArgumentException('Total parts cannot exceed 10000');
+            }
+
             $result = $this->promise()->wait();
             return Create::promiseFor($result);
         } catch (Throwable $e) {
@@ -143,10 +148,10 @@ class MultipartCopier extends AbstractMultipartUploader
                 'UploadId' => $this->uploadId,
                 'PartNumber' => $partNumber,
                 'CopySource' => $copySource,
-                'CopySourceRange' => "bytes=$start-$end",
+                'CopySourceRange' => "bytes={$start}-{$end}",
             ];
 
-            $copyPartArgs['requestArgs'] = [...$copyPartArgs];
+            $copyPartArgs['requestArgs'] = $copyPartArgs;
 
             $command = $this->s3Client->getCommand('UploadPartCopy', $copyPartArgs);
             $commands[] = $command;
@@ -218,8 +223,7 @@ class MultipartCopier extends AbstractMultipartUploader
         } catch (Throwable $e) {
             throw new \RuntimeException(
                 "Failed to get source object size: " . $e->getMessage(),
-                0,
-                $e
+                $e->getStatusCode() ?? 0
             );
         }
     }

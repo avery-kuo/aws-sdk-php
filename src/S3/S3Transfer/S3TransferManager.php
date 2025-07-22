@@ -37,6 +37,7 @@ class S3TransferManager
         'concurrency' => 5,
         'track_progress' => false,
         'region' => 'us-east-1',
+        'resumable_upload_object' => false,
     ];
 
     /** @var S3Client */
@@ -161,7 +162,7 @@ class S3TransferManager
             $requestArgs['ChecksumAlgorithm'] = strtoupper($algorithm);
         }
 
-        if ($progressTracker === null
+        if (is_null($progressTracker)
             && ($config['track_progress'] ?? $this->config['track_progress'])) {
             $progressTracker = new SingleProgressTracker();
         }
@@ -179,6 +180,7 @@ class S3TransferManager
                 [
                     'part_size' => $config['part_size'] ?? $this->config['target_part_size_bytes'],
                     'concurrency' => $this->config['concurrency'],
+                    'resumable_upload_object' => $this->config['resumable_upload_object'],
                 ],
                 $listenerNotifier
             );
@@ -246,7 +248,7 @@ class S3TransferManager
 
         $bucketTo = $this->parseBucket($bucketTo);
 
-        if ($progressTracker === null
+        if (is_null($progressTracker)
             && ($config['track_progress'] ?? $this->config['track_progress'])
         ) {
             $progressTracker = new MultiProgressTracker();
@@ -337,9 +339,7 @@ class S3TransferManager
                 $file,
                 $uploadRequestArgs,
                 $config,
-                array_map(function ($listener) {
-                    return clone $listener;
-                }, $listeners),
+                array_map(fn($listener) => clone $listener, $listeners),
                 $progressTracker,
             )->then(function (UploadResponse $response) use (&$objectsUploaded) {
                 $objectsUploaded++;
@@ -448,7 +448,7 @@ class S3TransferManager
             }
         }
 
-        if ($progressTracker === null
+        if (is_null($progressTracker)
             && ($config['track_progress'] ?? $this->config['track_progress'])) {
             $progressTracker = new SingleProgressTracker();
         }
@@ -543,7 +543,7 @@ class S3TransferManager
 
         $bucket = $this->parseBucket($bucket);
 
-        if ($progressTracker === null
+        if (is_null($progressTracker)
             && ($config['track_progress'] ?? $this->config['track_progress'])) {
             $progressTracker = new MultiProgressTracker();
         }
@@ -621,9 +621,7 @@ class S3TransferManager
                 [
                     'minimum_part_size' => $config['minimum_part_size'] ?? 0,
                 ],
-                array_map(function ($listener) {
-                    return clone $listener;
-                }, $listeners),
+                array_map(fn($listener) => clone $listener, $listeners),
                 $progressTracker,
             )->then(function (DownloadResponse $result) use (
                 &$objectsDownloaded,
@@ -724,7 +722,8 @@ class S3TransferManager
     ): PromiseInterface
     {
         if ($listenerNotifier !== null) {
-            $listenerNotifier->transferInitiated([
+            $listenerNotifier->transferInitiated(
+                context: [
                 TransferListener::REQUEST_ARGS_KEY => $requestArgs,
                 TransferListener::PROGRESS_SNAPSHOT_KEY => new TransferProgressSnapshot(
                     $requestArgs['Key'],
@@ -814,7 +813,7 @@ class S3TransferManager
 
         if (!empty($listenerNotifier)) {
             $listenerNotifier->transferInitiated(
-                [
+                context: [
                     TransferListener::REQUEST_ARGS_KEY => $requestArgs,
                     TransferListener::PROGRESS_SNAPSHOT_KEY => new TransferProgressSnapshot(
                         $requestArgs['Key'],
@@ -1092,7 +1091,7 @@ class S3TransferManager
             );
         }
 
-        if ($progressTracker === null
+        if (is_null($progressTracker)
             && ($config['track_progress'] ?? $this->config['track_progress'])
         ) {
             $progressTracker = new SingleProgressTracker();
@@ -1105,7 +1104,7 @@ class S3TransferManager
         $listenerNotifier = new TransferListenerNotifier($listeners);
 
         // Determine if multipart copy is required
-        if ($this->requiresMultipartCopy(source: $source, mupThreshold: $mupThreshold)) {
+        if ($this->requiresMultipartCopy($source, $mupThreshold)) {
             if (!isset($copyRequestArgs['ChecksumAlgorithm'])) {
                 $algorithm = $config['checksum_algorithm']
                     ?? $this->config['checksum_algorithm'];
@@ -1192,7 +1191,8 @@ class S3TransferManager
         $promise = $this->s3Client->executeAsync($command);
 
         if (!empty($listenerNotifier)) {
-            $listenerNotifier->transferInitiated([
+            $listenerNotifier->transferInitiated(
+                context: [
                 TransferListener::REQUEST_ARGS_KEY => $copyRequestArgs,
                 TransferListener::PROGRESS_SNAPSHOT_KEY => new TransferProgressSnapshot(
                     $copyRequestArgs['Key'],

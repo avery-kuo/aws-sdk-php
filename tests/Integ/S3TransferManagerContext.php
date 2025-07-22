@@ -47,10 +47,8 @@ class S3TransferManagerContext implements Context, SnippetAcceptingContext
      * @AfterSuite
      */
     public static function afterSuiteRuns(): void {
-        // Clean up test bucket
         self::doDeleteTestBucket();
         self::doDeleteDestBucket();
-
     }
 
     /**
@@ -84,11 +82,15 @@ class S3TransferManagerContext implements Context, SnippetAcceptingContext
     public function iHaveAnObjectWithContentInASourceBucket(string $key, string $content): void
     {
         $s3 = self::getSdk()->createS3();
-        $s3->putObject([
-            'Bucket' => self::getResourceName(),
-            'Key'    => $key,
-            'Body'   => $content,
-        ]);
+        try {
+            $s3->putObject([
+                'Bucket' => self::getResourceName(),
+                'Key'    => $key,
+                'Body'   => $content,
+            ]);
+        } catch (\Throwable $e) {
+            Assert::fail("Failed to put object '{$key}': " . $e->getMessage());
+        }
     }
 
     /**
@@ -96,13 +98,17 @@ class S3TransferManagerContext implements Context, SnippetAcceptingContext
      */
     public function ICopyTheObjectToADestinationBucketUsingTheS3TransferManager(string $key): void
     {
-        $transfer = new S3TransferManager(
-            self::getSdk()->createS3()
-        );
-        $transfer->copy(
-            ['Bucket' => self::getResourceName(),    'Key' => $key],
-            ['Bucket' => self::getDestResourceName(), 'Key' => $key]
-        )->wait();
+        $transfer = new S3TransferManager(self::getSdk()->createS3());
+        try {
+            $transfer
+                ->copy(
+                    ['Bucket' => self::getResourceName(),    'Key' => $key],
+                    ['Bucket' => self::getDestResourceName(), 'Key' => $key]
+                )
+                ->wait();
+        } catch (\Throwable $e) {
+            Assert::fail("Failed to copy '{$key}' to destination: " . $e->getMessage());
+        }
     }
 
     /**
@@ -110,24 +116,25 @@ class S3TransferManagerContext implements Context, SnippetAcceptingContext
      */
     public function theObjectShouldExistInTheDestinationBucketAndItsContentShouldBe(string $key, string $content): void
     {
-        $s3       = self::getSdk()->createS3();
-        $response = $s3->getObject([
-            'Bucket' => self::getDestResourceName(),
-            'Key'    => $key,
-        ]);
-        $head = $s3->headObject([
-            'Bucket' => self::getDestResourceName(),
-            'Key'    => $key,
-        ]);
-        $uploads = $s3->listMultipartUploads([
-            'Bucket' => self::getDestResourceName(),
-            'Prefix' => $key,
-        ])['Uploads'] ?? [];
-        Assert::assertEmpty($uploads);
+        $s3 = self::getSdk()->createS3();
+
+        try {
+            $response = $s3->getObject([
+                'Bucket' => self::getDestResourceName(),
+                'Key'    => $key,
+            ]);
+            $head = $s3->headObject([
+                'Bucket' => self::getDestResourceName(),
+                'Key'    => $key,
+            ]);
+        } catch (\Throwable $e) {
+            Assert::fail("Failed to fetch '{$key}' from destination: " . $e->getMessage());
+        }
+
         Assert::assertSame(strlen($content), $head['ContentLength'], "ContentLength must match");
         Assert::assertSame('"' . md5($content) . '"', $response['ETag'], "ETag should equal MD5 of the content");
         Assert::assertSame(200, $response['@metadata']['statusCode']);
-        Assert::assertSame($content, (string)$response['Body']->getContents());
+        Assert::assertSame($content, (string) $response['Body']->getContents());
     }
 
     /**
@@ -136,14 +143,17 @@ class S3TransferManagerContext implements Context, SnippetAcceptingContext
     public function iHaveAnObjectWhereItsContentSizeIs(string $key, string $filesize): void
     {
         $s3      = self::getSdk()->createS3();
-        $content = str_repeat('x', (int)$filesize);
-        $s3->putObject([
-            'Bucket' => self::getResourceName(),
-            'Key'    => $key,
-            'Body'   => $content,
-        ]);
+        $content = str_repeat('x', (int) $filesize);
+        try {
+            $s3->putObject([
+                'Bucket' => self::getResourceName(),
+                'Key'    => $key,
+                'Body'   => $content,
+            ]);
+        } catch (\Throwable $e) {
+            Assert::fail("Failed to put object '{$key}' of size {$filesize}: " . $e->getMessage());
+        }
     }
-
 
     /**
      * @When /^I copy the object (.*) with part size (.*) to a destination bucket using the S3 Transfer Manager$/
@@ -152,13 +162,18 @@ class S3TransferManagerContext implements Context, SnippetAcceptingContext
     {
         $transfer = new S3TransferManager(
             self::getSdk()->createS3(),
-            ['multipart_copy_threshold_bytes' => (int)$partsize]
+            ['multipart_copy_threshold_bytes' => (int) $partsize]
         );
-        $transfer->copy(
-            ['Bucket' => self::getResourceName(),    'Key' => $key],
-            ['Bucket' => self::getDestResourceName(), 'Key' => $key],
-            ['part_size' => (int)$partsize]
-        )->wait();
+
+        try {
+            $transfer->copy(
+                ['Bucket' => self::getResourceName(),    'Key' => $key],
+                ['Bucket' => self::getDestResourceName(), 'Key' => $key],
+                ['part_size' => (int) $partsize]
+            )->wait();
+        } catch (\Throwable $e) {
+            Assert::fail("Failed to copy '{$key}' with part size {$partsize}: " . $e->getMessage());
+        }
     }
 
     /**
@@ -167,34 +182,43 @@ class S3TransferManagerContext implements Context, SnippetAcceptingContext
     public function theObjectShouldHaveExistInDestinationPartsAndItsSizeMustBe(string $key, string $expectedParts, string $expectedSize): void
     {
         $s3   = self::getSdk()->createS3();
-        $head = $s3->headObject([
-            'Bucket' => self::getDestResourceName(),
-            'Key'    => $key,
-        ]);
+
+        try {
+            $head = $s3->headObject([
+                'Bucket' => self::getDestResourceName(),
+                'Key'    => $key,
+            ]);
+        } catch (\Throwable $e) {
+            Assert::fail("Failed to head object '{$key}': " . $e->getMessage());
+        }
 
         // verify size
         $actualSize = $head['ContentLength'];
-        Assert::assertSame((int)$expectedSize, $actualSize, "Size mismatch for {$key}");
+        Assert::assertSame((int) $expectedSize, $actualSize, "Size mismatch for {$key}");
         // verify parts
         $etag = $head['ETag'];
         if (preg_match('/^"([0-9a-f]+)-(\d+)"$/', $etag, $m)) {
-            $actualParts = (int)$m[2];
+            $actualParts = (int) $m[2];
         } else {
             throw new \RuntimeException("ETag {$etag} is not a multipart ETag");
         }
         Assert::assertSame(
-            (int)$expectedParts,
+            (int) $expectedParts,
             $actualParts,
             "Expected {$expectedParts} parts, got {$actualParts}"
         );
 
         // Check for no leftover multipart‐upload state
-        $uploads = $s3->listMultipartUploads([
-            'Bucket' => self::getDestResourceName(),
-            'Prefix' => $key,
-        ])['Uploads'] ?? [];
+        try {
+            $uploadsResult = $s3->listMultipartUploads([
+                'Bucket' => self::getDestResourceName(),
+                'Prefix' => $key,
+            ]);
+        } catch (\Throwable $e) {
+            Assert::fail("Failed to list multipart uploads for '{$key}': " . $e->getMessage());
+        }
         Assert::assertEmpty(
-            $uploads,
+            $uploadsResult['Uploads'],
             "Found unexpected in‐progress multipart uploads for {$key}"
         );
     }
@@ -202,8 +226,11 @@ class S3TransferManagerContext implements Context, SnippetAcceptingContext
     /**
      * @When /^I attempt to copy the object (.*) with part size (.*) to a destination bucket but fail on part (.*)$/
      */
-    public function iAttemptToCopyTheObjectWithPartSizeToADestinationBucketButFailOnPart(string $key, string $partSize, string $failPart): void
-    {
+    public function iAttemptToCopyTheObjectWithPartSizeToADestinationBucketButFailOnPart(
+        string $key,
+        string $partSize,
+        string $failPart
+    ): void {
         $client = self::getSdk()->createS3();
         $client->getHandlerList()->appendSign(
             function (callable $handler) use ($failPart) {
@@ -211,7 +238,7 @@ class S3TransferManagerContext implements Context, SnippetAcceptingContext
                 return function ($command, $request) use ($handler, &$count, $failPart) {
                     if (stripos($command->getName(), 'UploadPartCopy') === 0) {
                         $count++;
-                        if ($count === (int)$failPart) {
+                        if ($count === (int) $failPart) {
                             throw new \Exception("Simulated failure on part {$failPart}");
                         }
                     }
@@ -223,14 +250,14 @@ class S3TransferManagerContext implements Context, SnippetAcceptingContext
 
         $transfer = new S3TransferManager(
             $client,
-            ['multipart_copy_threshold_bytes' => (int)$partSize]
+            ['multipart_copy_threshold_bytes' => (int) $partSize]
         );
 
         try {
             $transfer->copy(
                 ['Bucket' => self::getResourceName(),    'Key' => $key],
                 ['Bucket' => self::getDestResourceName(), 'Key' => $key],
-                ['part_size' => (int)$partSize]
+                ['part_size' => (int) $partSize]
             )->wait();
         } catch (\Exception $e) {
         }
@@ -241,15 +268,21 @@ class S3TransferManagerContext implements Context, SnippetAcceptingContext
      */
     public function thereShouldBeNoLeftoverMultipartUploadsForObjectInTheDestinationBucket(string $key): void
     {
-        $client = self::getSdk()->createS3();
-        $uploads = $client->listMultipartUploads([
-            'Bucket' => self::getDestResourceName(),
-            'Prefix' => $key,
-        ]);
+        try {
+            $client  = self::getSdk()->createS3();
+            $uploads = $client->listMultipartUploads([
+                'Bucket' => self::getDestResourceName(),
+                'Prefix' => $key,
+            ]);
+        } catch (\Throwable $e) {
+            Assert::fail(
+                "Failed to list multipart uploads for '{$key}': " . $e->getMessage()
+            );
+        }
 
         Assert::assertEmpty(
-            $uploads['Uploads'] ?? [],
-            "Expected no leftover multipart uploads for {$key}"
+            $uploads['Uploads'],
+            "Expected no leftover multipart uploads for '{$key}'"
         );
     }
 
