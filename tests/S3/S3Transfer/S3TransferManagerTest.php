@@ -6,7 +6,6 @@ use Aws\Api\Service;
 use Aws\Command;
 use Aws\CommandInterface;
 use Aws\HandlerList;
-use Aws\Middleware;
 use Aws\Result;
 use Aws\S3\S3Client;
 use Aws\S3\S3Transfer\AbstractMultipartUploader;
@@ -18,7 +17,6 @@ use Aws\S3\S3Transfer\Models\UploadDirectoryRequest;
 use Aws\S3\S3Transfer\Models\UploadDirectoryResponse;
 use Aws\S3\S3Transfer\Models\UploadRequest;
 use Aws\S3\S3Transfer\Models\CopyRequest;
-use Aws\S3\S3Transfer\Models\CopyResult;
 use Aws\S3\S3Transfer\MultipartDownloader;
 use Aws\S3\S3Transfer\MultipartUploader;
 use Aws\S3\S3Transfer\Progress\TransferListener;
@@ -3038,7 +3036,7 @@ class S3TransferManagerTest extends TestCase
     {
         $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionMessage(
-            "The `Bucket` and `Key` parameters must be provided in the source."
+            "Both `Bucket` and `Key` must be provided in the source array."
         );
 
         $manager = new S3TransferManager();
@@ -3066,8 +3064,9 @@ class S3TransferManagerTest extends TestCase
 
         $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionMessage(
-            "The `{$missingProperty}` parameter must be provided" .
-            ($isSource ? " in the source array." : " in the copy request arguments.")
+            $isSource
+                ? "Both `Bucket` and `Key` must be provided in the source array."
+                : "Both `Bucket` and `Key` must be provided in the copy request arguments."
         );
 
         $validSource = ['Bucket' => 'source-bucket', 'Key' => 'source-key'];
@@ -3083,6 +3082,7 @@ class S3TransferManagerTest extends TestCase
 
         $manager->copy($request)->wait();
     }
+
 
 
     /**
@@ -3275,7 +3275,8 @@ class S3TransferManagerTest extends TestCase
         int $objectSize,
         int $expectedPartCount,
         bool $isMultipartCopy
-    ): void {
+    ): void
+    {
         $client  = $this->getTestClient('s3');
         $manager = new S3TransferManager($client);
 

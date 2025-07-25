@@ -7,7 +7,6 @@ use Aws\Exception\AwsException;
 use Aws\S3\S3Transfer\AbstractMultipartUploader;
 use Aws\S3\S3Transfer\Models\CopyResult;
 use Aws\S3\S3Transfer\MultipartCopier;
-use Aws\S3\S3Transfer\Models\CopyResponse;
 use Aws\S3\S3Transfer\Progress\TransferListener;
 use Aws\S3\S3Transfer\Progress\TransferListenerNotifier;
 use Aws\Test\UsesServiceTrait;
@@ -63,7 +62,8 @@ class MultipartCopierTest extends TestCase
         TransferListenerNotifier $notifier,
         string $exceptionClass = null,
         string $exceptionMessage = null
-    ): void {
+    ): void
+    {
         $this->addMockResults($this->client, $responses);
 
         if ($exceptionClass !== null) {
@@ -115,7 +115,7 @@ class MultipartCopierTest extends TestCase
     {
         $this->addMockResults($this->client, [
             new Result(['ContentLength' => 10 * 1024 * 1024]),
-            new Result(['UploadId'      => 'upload-id']),
+            new Result(['UploadId' => 'upload-id']),
             new Result(['CopyPartResult'=> ['ETag' => 'a']]),
             new Result(['CopyPartResult'=> ['ETag' => 'b']]),
             new Result(['Location' => 'u','Key' => 'k','Bucket' => 'b']),
@@ -149,7 +149,8 @@ class MultipartCopierTest extends TestCase
         array $config,
         mixed $source,
         string $expectedException
-    ): void {
+    ): void
+    {
         $this->expectException($expectedException);
         new MultipartCopier(
             $this->client,
@@ -164,19 +165,19 @@ class MultipartCopierTest extends TestCase
         return [
             'Invalid source type (string)' => [
                 'dest' => ['Bucket' => 'dest-bucket', 'Key' => 'dest-key'],
-                'config' => ['part_size' => MultipartCopier::PART_MIN_SIZE, 'concurrency' => 1],
+                'config' => ['part_size' => AbstractMultipartUploader::PART_MIN_SIZE, 'concurrency' => 1],
                 'source' => 'not-an-array',
                 'expectedException' => \TypeError::class,
             ],
             'Missing source Key' => [
                 'dest' => ['Bucket' => 'dest', 'Key' => 'dest-key'],
-                'config' => ['part_size' => MultipartCopier::PART_MIN_SIZE, 'concurrency' => 1],
+                'config' => ['part_size' => AbstractMultipartUploader::PART_MIN_SIZE, 'concurrency' => 1],
                 'source' => ['Bucket' => 'src', 'Key' => ''],
                 'expectedException' => \InvalidArgumentException::class,
             ],
             'Same source and destination' => [
                 'dest' => ['Bucket' => 'bucket', 'Key' => 'key'],
-                'config' => ['part_size' => MultipartCopier::PART_MIN_SIZE, 'concurrency' => 1],
+                'config' => ['part_size' => AbstractMultipartUploader::PART_MIN_SIZE, 'concurrency' => 1],
                 'source' => ['Bucket' => 'bucket', 'Key' => 'key'],
                 'expectedException' => \InvalidArgumentException::class,
             ],
@@ -201,7 +202,7 @@ class MultipartCopierTest extends TestCase
         $copier = new MultipartCopier(
             $this->client,
             ['Bucket' => 'dest', 'Key' => 'dest-key'],
-            ['part_size' => MultipartCopier::PART_MIN_SIZE, 'concurrency' => 1],
+            ['part_size' => AbstractMultipartUploader::PART_MIN_SIZE, 'concurrency' => 1],
             $source
         );
 
@@ -218,10 +219,10 @@ class MultipartCopierTest extends TestCase
         $url = 'http://dest.s3.amazonaws.com/dest-key';
         $this->addMockResults($this->client, [
             new Result(['ContentLength' => 10 * 1024 * 1024]),
-            new Result(['UploadId'      => 'upload-id']),
+            new Result(['UploadId' => 'upload-id']),
             new Result(['CopyPartResult'=> ['ETag' => 'etag1']]),
             new Result(['CopyPartResult'=> ['ETag' => 'etag2']]),
-            new Result(['Location'      => $url,'Key' => 'dest-key','Bucket' => 'dest']),
+            new Result(['Location' => $url,'Key' => 'dest-key','Bucket' => 'dest']),
         ]);
 
         $copier = new MultipartCopier(
@@ -249,10 +250,10 @@ class MultipartCopierTest extends TestCase
         $url = 'http://dest.s3.amazonaws.com/dest-key';
         $this->addMockResults($this->client, [
             new Result(['ContentLength' => 10 * 1024 * 1024]),
-            new Result(['UploadId'      => 'upload-id']),
+            new Result(['UploadId' => 'upload-id']),
             new Result(['CopyPartResult'=> ['ETag' => 'etag1']]),
             new Result(['CopyPartResult'=> ['ETag' => 'etag2']]),
-            new Result(['Location'      => $url,'Key'=>'dest-key','Bucket'=>'dest']),
+            new Result(['Location' => $url,'Key'=>'dest-key','Bucket'=>'dest']),
         ]);
 
         $mockCopier = $this->getMockBuilder(MultipartCopier::class)
@@ -282,7 +283,7 @@ class MultipartCopierTest extends TestCase
     {
         $this->addMockResults($this->client, [
             new Result(['ContentLength' => 10 * 1024 * 1024]),
-            new Result(['UploadId'      => 'upload-id']),
+            new Result(['UploadId' => 'upload-id']),
             new Result(['CopyPartResult'=> ['ETag' => 'etag1']]),
             new AwsException('Part-copy exploded!', new Command('UploadPartCopy', [])),
         ]);
@@ -295,10 +296,10 @@ class MultipartCopierTest extends TestCase
                 ['part_size'=>5 * 1024 * 1024,'concurrency'=>1],
                 ['Bucket'=>'src','Key'=>'key'],
             ])
-            ->onlyMethods(['abortMultipartUpload'])
+            ->onlyMethods(['abortMultipartOperation'])
             ->getMock();
 
-        $mockCopier->method('abortMultipartUpload')
+        $mockCopier->method('abortMultipartOperation')
             ->willReturnCallback(function () use (&$abortCalls) {
                 $abortCalls++;
                 return \GuzzleHttp\Promise\Create::promiseFor(null);
@@ -324,11 +325,11 @@ class MultipartCopierTest extends TestCase
         $copier = new MultipartCopier(
             $this->client,
             ['Bucket'=>'dest','Key'=>'dest-key'],
-            ['part_size'=>5 * 1024 * 1024,'concurrency'=>1],
+            ['part_size'=> 5 * 1024 * 1024,'concurrency'=>1],
             ['Bucket'=>'src','Key'=>'src-key'],
         );
 
-        $m      = new \ReflectionMethod(MultipartCopier::class, 'getSourceSize');
+        $m = new \ReflectionMethod(MultipartCopier::class, 'getSourceSize');
         $actual = $m->invoke($copier);
         $this->assertSame(200, $actual);
     }
@@ -365,13 +366,13 @@ class MultipartCopierTest extends TestCase
     {
         $notifier = $this->createNotifier([
             'transferInitiated' => 1,
-            'bytesTransferred'  => 2,
-            'transferComplete'  => 1,
+            'bytesTransferred' => 2,
+            'transferComplete' => 1,
         ]);
 
         $responses = [
             new Result(['ContentLength' => 10 * 1024 * 1024]),
-            new Result(['UploadId'      => 'upload-id']),
+            new Result(['UploadId' => 'upload-id']),
             new Result(['CopyPartResult'=> ['ETag' => 'a']]),
             new Result(['CopyPartResult'=> ['ETag' => 'b']]),
             new Result(['Location' => 'u', 'Key' => 'k', 'Bucket' => 'b']),
@@ -392,12 +393,11 @@ class MultipartCopierTest extends TestCase
     {
         $notifier = $this->createNotifier([
             'transferInitiated' => 1,
-            'transferFail'      => 1,
+            'transferFail' => 1,
         ]);
 
-
         $responses = [
-            new Result(['ContentLength' => 3 * 1024 * 1024]),         // size < 5 MiB → single‐copy
+            new Result(['ContentLength' => 3 * 1024 * 1024]),
             new AwsException('Copy failed', new Command('CopyObject', [])),
         ];
 
@@ -446,14 +446,14 @@ class MultipartCopierTest extends TestCase
     public function testMultipartOperationsAreCalled(): void
     {
         $operationsCalled = [
-            'CreateMultipartUpload'   => false,
-            'UploadPartCopy'          => false,
+            'CreateMultipartUpload' => false,
+            'UploadPartCopy' => false,
             'CompleteMultipartUpload' => false,
         ];
 
         $responseQueue = [
             new Result(['ContentLength' => 10 * 1024 * 1024]),
-            new Result(['UploadId'      => 'upload-id']),
+            new Result(['UploadId' => 'upload-id']),
             new Result(['CopyPartResult'=> ['ETag' => 'etag1']]),
             new Result(['CopyPartResult'=> ['ETag' => 'etag2']]),
             new Result([
@@ -468,14 +468,12 @@ class MultipartCopierTest extends TestCase
             ->onlyMethods(['executeAsync', 'getCommand'])
             ->getMock();
 
-
         $s3Client->method('executeAsync')
             ->willReturnCallback(function ($cmd) use (&$operationsCalled, &$responseQueue) {
                 $operationsCalled[$cmd->getName()] = true;
                 $next = array_shift($responseQueue);
                 return \GuzzleHttp\Promise\Create::promiseFor($next);
             });
-
 
         $s3Client->method('getCommand')
             ->willReturnCallback(function ($name, $args) {
@@ -485,7 +483,7 @@ class MultipartCopierTest extends TestCase
         $copier = new MultipartCopier(
             $s3Client,
             ['Bucket' => 'dest', 'Key' => 'dest-key'],
-            ['concurrency' => 1],  // single‐threaded for determinism
+            ['concurrency' => 1],
             ['Bucket' => 'src',  'Key' => 'src-key']
         );
 
@@ -510,7 +508,8 @@ class MultipartCopierTest extends TestCase
     public function testValidatePartSize(
         int $partSize,
         bool $expectError
-    ): void {
+    ): void
+    {
         if ($expectError) {
             $this->expectException(\InvalidArgumentException::class);
 
@@ -534,19 +533,19 @@ class MultipartCopierTest extends TestCase
     public function validatePartSizeProvider(): array {
         return [
             'part_size_over_max' => [
-                'part_size' => MultipartCopier::PART_MAX_SIZE + 1,
+                'part_size' => AbstractMultipartUploader::PART_MAX_SIZE + 1,
                 'expectError' => true,
             ],
             'part_size_under_min' => [
-                'part_size' => MultipartCopier::PART_MIN_SIZE - 1,
+                'part_size' => AbstractMultipartUploader::PART_MIN_SIZE - 1,
                 'expectError' => true,
             ],
             'part_size_between_valid_range_1' => [
-                'part_size' => MultipartCopier::PART_MAX_SIZE - 1,
+                'part_size' => AbstractMultipartUploader::PART_MAX_SIZE - 1,
                 'expectError' => false,
             ],
             'part_size_between_valid_range_2' => [
-                'part_size' => MultipartCopier::PART_MIN_SIZE + 1,
+                'part_size' => AbstractMultipartUploader::PART_MIN_SIZE + 1,
                 'expectError' => false,
             ]
         ];
@@ -617,9 +616,9 @@ class MultipartCopierTest extends TestCase
 
         $this->addMockResults($this->client, [
             new Result(['ContentLength' => 5 * 1024 * 1024]),
-            new Result(['UploadId'      => 'TestUploadId']),
+            new Result(['UploadId' => 'TestUploadId']),
             new AwsException('Copy failed', new Command('UploadPartCopy', [])),
-            new Result([]), // ✔️ this lets abortMultipartUpload succeed
+            new Result([]),
         ]);
 
         $copier = new MultipartCopier(

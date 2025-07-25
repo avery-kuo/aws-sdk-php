@@ -115,7 +115,9 @@ class S3TransferManagerContext implements Context, SnippetAcceptingContext
     /**
      * @Then /^the object (.*) should exist in the destination bucket and its content should be (.*)$/
      */
-    public function theObjectShouldExistInTheDestinationBucketAndItsContentShouldBe(string $key, string $content): void
+    public function theObjectShouldExistInTheDestinationBucketAndItsContentShouldBe(
+        string $key, string $content
+    ): void
     {
         $s3 = self::getSdk()->createS3();
 
@@ -159,32 +161,36 @@ class S3TransferManagerContext implements Context, SnippetAcceptingContext
     /**
      * @When /^I copy the object (.*) with part size (.*) to a destination bucket using the S3 Transfer Manager$/
      */
-    public function ICopyTheObjectWithPartSizeToADestinationBucketUsingTheS3TransferManager(string $key, string $partsize): void
+    public function ICopyTheObjectWithPartSizeToADestinationBucketUsingTheS3TransferManager(
+        string $key, string $part_size
+    ): void
     {
         $transfer = new S3TransferManager(
             self::getSdk()->createS3(),
-            ['multipart_copy_threshold_bytes' => (int) $partsize]
+            ['multipart_copy_threshold_bytes' => (int) $part_size]
         );
         $req = CopyRequest::fromLegacyArgs(
             ['Bucket' => self::getResourceName(),     'Key' => $key],
             ['Bucket' => self::getDestResourceName(), 'Key' => $key],
             [
-                'multipart_copy_threshold_bytes' => (int) $partsize,
-                'part_size' => (int) $partsize,
+                'multipart_copy_threshold_bytes' => (int) $part_size,
+                'part_size' => (int) $part_size,
             ]
         );
 
         try {
             $transfer->copy($req)->wait();
         } catch (\Throwable $e) {
-            Assert::fail("Failed to copy '{$key}' with part size {$partsize}: " . $e->getMessage());
+            Assert::fail("Failed to copy '{$key}' with part size {$part_size}: " . $e->getMessage());
         }
     }
 
     /**
      * @Then /^the object (.*) exists in the destination bucket with (.*) parts and its size must be (.*)$/
      */
-    public function theObjectShouldHaveExistInDestinationPartsAndItsSizeMustBe(string $key, string $expectedParts, string $expectedSize): void
+    public function theObjectShouldHaveExistInDestinationPartsAndItsSizeMustBe(
+        string $key, string $expectedParts, string $expectedSize
+    ): void
     {
         $s3   = self::getSdk()->createS3();
 
@@ -293,19 +299,6 @@ class S3TransferManagerContext implements Context, SnippetAcceptingContext
             $uploads['Uploads'],
             "Expected no leftover multipart uploads for '{$key}'"
         );
-    }
-
-    /**
-     * @When /^I download the object (.*) from the test bucket using the S3 Transfer Manager$/
-     */
-    public function iDownloadTheObjectFromTheTestBucketUsingTheS3TransferManager(string $key): void
-    {
-        $transfer = new S3TransferManager(
-            self::getSdk()->createS3()
-        );
-        $this->stream = $transfer->download(
-            ['Bucket' => self::getResourceName(), 'Key' => $key]
-        )->wait();
     }
 
     /**

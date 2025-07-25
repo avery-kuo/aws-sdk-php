@@ -1,5 +1,4 @@
 <?php
-
 namespace Aws\S3\S3Transfer;
 
 use Aws\ResultInterface;
@@ -132,11 +131,11 @@ class MultipartCopier extends AbstractMultipartUploader
      */
     private function copyParts(): PromiseInterface
     {
-        $partSize = $this->config['part_size'];
+        $partSize   = $this->config['part_size'];
         $objectSize = $this->getTotalSize();
         $totalParts = (int) ceil($objectSize / $partSize);
 
-        if ($totalParts > AbstractMultipartUploader::PART_MAX_NUM) {
+        if ($totalParts > self::PART_MAX_NUM) {
             throw new \InvalidArgumentException('Total parts cannot exceed 10000');
         }
 
@@ -144,16 +143,17 @@ class MultipartCopier extends AbstractMultipartUploader
 
         for ($partNumber = 1; $partNumber <= $totalParts; $partNumber++) {
             $start = ($partNumber - 1) * $partSize;
-            $end = min($start + $partSize - 1, $objectSize - 1);
+            $end   = min($start + $partSize - 1, $objectSize - 1);
 
+            $length = $end - $start + 1;
             $copySource = $this->getSourcePath($this->source);
-
             $copyPartArgs = [
                 ...$this->requestArgs,
                 'UploadId' => $this->uploadId,
                 'PartNumber' => $partNumber,
                 'CopySource' => $copySource,
                 'CopySourceRange' => "bytes={$start}-{$end}",
+                'ContentLength' => $length,
             ];
 
             $copyPartArgs['requestArgs'] = $copyPartArgs;
@@ -162,25 +162,21 @@ class MultipartCopier extends AbstractMultipartUploader
             $commands[] = $command;
         }
 
-        return (new CommandPool(
-            $this->s3Client,
-            $commands,
-            [
-                'concurrency' => $this->config['concurrency'],
-                'fulfilled' => function (ResultInterface $result, $index) use ($commands) {
-                    $command = $commands[$index];
-                    $this->collectPart($result, $command);
-                    $this->partCompleted(
-                        $command['requestArgs']['ContentLength'] ?? $this->config['part_size'],
-                        $command['requestArgs']
-                    );
-                },
-                'rejected' => function (Throwable $e) {
-                    $this->partFailed($e);
-                    throw $e;
-                },
-            ]
-        ))->promise();
+        return (new CommandPool($this->s3Client, $commands, [
+            'concurrency' => $this->config['concurrency'],
+            'fulfilled' => function (ResultInterface $result, $index) use ($commands) {
+                $command = $commands[$index];
+                $this->collectPart($result, $command);
+                $this->partCompleted(
+                    $command['requestArgs']['ContentLength'],
+                    $command['requestArgs']
+                );
+            },
+            'rejected' => function (Throwable $e) {
+                $this->partFailed($e);
+                throw $e;
+            },
+        ]))->promise();
     }
 
     /**
