@@ -82,6 +82,7 @@ class MultipartCopierTest extends TestCase
             null,
             $notifier
         );
+        
         $copier->copy();
     }
 
