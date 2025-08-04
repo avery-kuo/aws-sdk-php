@@ -52,7 +52,8 @@ class S3TransferManager
     public function __construct(
         ?S3ClientInterface $s3Client = null,
         array|S3TransferManagerConfig|null $config = null
-    ) {
+    )
+    {
         if ($config === null || is_array($config)) {
             $this->config = S3TransferManagerConfig::fromArray($config ?? []);
         } else {
@@ -549,9 +550,9 @@ class S3TransferManager
      * @return PromiseInterface
      */
     private function tryMultipartDownload(
-        array $getObjectRequestArgs,
-        array $config,
-        DownloadHandler $downloadHandler,
+        array                     $getObjectRequestArgs,
+        array                     $config,
+        DownloadHandler           $downloadHandler,
         ?TransferListenerNotifier $listenerNotifier = null,
     ): PromiseInterface
     {
@@ -668,7 +669,7 @@ class S3TransferManager
      * @return PromiseInterface
      */
     private function tryMultipartUpload(
-        UploadRequest $uploadRequest,
+        UploadRequest             $uploadRequest,
         ?TransferListenerNotifier $listenerNotifier = null,
     ): PromiseInterface
     {

@@ -13,6 +13,7 @@ class S3TransferManagerConfig
     public const DEFAULT_CONCURRENCY = 5;
     private const DEFAULT_TRACK_PROGRESS = false;
     private const DEFAULT_REGION = 'us-east-1';
+    private const DEFAULT_RESUMABLE_UPLOAD_OBJECT = false;
 
     /** @var int  */
     private int $targetPartSizeBytes;
@@ -41,6 +42,9 @@ class S3TransferManagerConfig
     /** @var string */
     private string $defaultRegion;
 
+    /** @var bool */
+    private bool $resumable_upload_object;
+
     /**
      * @param int $targetPartSizeBytes
      * @param int $multipartUploadThresholdBytes
@@ -51,6 +55,7 @@ class S3TransferManagerConfig
      * @param int $concurrency
      * @param bool $trackProgress
      * @param string $defaultRegion
+     * @param bool $resumable_upload_object
      */
     public function __construct(
         int $targetPartSizeBytes,
@@ -61,7 +66,8 @@ class S3TransferManagerConfig
         string $multipartDownloadType,
         int $concurrency,
         bool $trackProgress,
-        string $defaultRegion
+        string $defaultRegion,
+        bool $resumable_upload_object = false
     ) {
         $this->targetPartSizeBytes = $targetPartSizeBytes;
         $this->multipartUploadThresholdBytes = $multipartUploadThresholdBytes;
@@ -72,6 +78,7 @@ class S3TransferManagerConfig
         $this->concurrency = $concurrency;
         $this->trackProgress = $trackProgress;
         $this->defaultRegion = $defaultRegion;
+        $this->resumable_upload_object = $resumable_upload_object;
     }
 
     /** $config:
@@ -91,6 +98,8 @@ class S3TransferManagerConfig
      *   To enable progress tracker in a multipart upload/download, and or
      *   a directory upload/download operation.
      * - default_region: (string, default="us-east-2")
+     * - resumable_upload_object: (bool, default=false)
+     *   To enable resumable upload object.
      */
     public static function fromArray(array $config): self {
         return new self(
@@ -109,7 +118,8 @@ class S3TransferManagerConfig
             $config['concurrency']
             ?? self::DEFAULT_CONCURRENCY,
             $config['track_progress'] ?? self::DEFAULT_TRACK_PROGRESS,
-            $config['default_region'] ?? self::DEFAULT_REGION
+            $config['default_region'] ?? self::DEFAULT_REGION,
+            $config['resumable_upload_object'] ?? self::DEFAULT_RESUMABLE_UPLOAD_OBJECT
         );
     }
 
@@ -186,6 +196,14 @@ class S3TransferManagerConfig
     }
 
     /**
+     * @return bool
+     */
+    public function isResumableUploadObject(): bool
+    {
+        return $this->resumable_upload_object;
+    }
+
+    /**
      * @return array
      */
     public function toArray(): array
@@ -200,6 +218,7 @@ class S3TransferManagerConfig
             'concurrency' => $this->concurrency,
             'track_progress' => $this->trackProgress,
             'default_region' => $this->defaultRegion,
+            'resumable_upload_object' => $this->resumable_upload_object,
         ];
     }
 }
