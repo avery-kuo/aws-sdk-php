@@ -48,6 +48,7 @@ class MultipartCopier extends AbstractMultipartUploader
         ?TransferProgressSnapshot $currentSnapshot = null,
         ?TransferListenerNotifier $listenerNotifier = null
     ) {
+
         $this->validateConfig($config);
 
         if (empty($source['Bucket']) || empty($source['Key'])) {
@@ -121,6 +122,7 @@ class MultipartCopier extends AbstractMultipartUploader
         for ($partNumber = 1; $partNumber <= $totalParts; $partNumber++) {
             $start = ($partNumber - 1) * $partSize;
             $end = min($start + $partSize - 1, $objectSize - 1);
+
             $length = $end - $start + 1;
             $copySource = $this->getSourcePath($this->source);
             $copyPartArgs = [
