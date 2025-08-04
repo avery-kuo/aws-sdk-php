@@ -82,7 +82,7 @@ class MultipartCopierTest extends TestCase
             null,
             $notifier
         );
-        
+
         $copier->copy();
     }
 
@@ -218,6 +218,7 @@ class MultipartCopierTest extends TestCase
         );
 
         $result   = $copier->copy();
+
         $this->assertInstanceOf(CopyResult::class, $result);
         $parts = $copier->getParts();
         $this->assertCount(2, $parts);
@@ -472,7 +473,7 @@ class MultipartCopierTest extends TestCase
         );
 
         $copier->copy();
-      
+
         foreach ($operationsCalled as $op => $wasCalled) {
             $this->assertTrue(
                 $wasCalled,
@@ -518,7 +519,6 @@ class MultipartCopierTest extends TestCase
         return [
             'part_size_over_max' => [
                 'part_size' => AbstractMultipartUploader::PART_MAX_SIZE + 1,
-
                 'expectError' => false,
             ],
             'part_size_under_min' => [
@@ -576,6 +576,7 @@ class MultipartCopierTest extends TestCase
             null,
             $listenerNotifier
         );
+
         $response = $copier->copy();
         $this->assertInstanceOf(CopyResult::class, $response);
     }
